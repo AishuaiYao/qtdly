@@ -1,55 +1,25 @@
-import Emitter from '../libs/tinyemitter';
-
 /**
- * 游戏基础的精灵类
+ * 基础精灵类，用于绘制图片到画布
  */
-export default class Sprite extends Emitter {
-  visible = true; // 是否可见
-  isActive = true; // 是否可碰撞
-
-  constructor(imgSrc = '', width = 0, height = 0, x = 0, y = 0) {
-    super();
-    
-    this.img = wx.createImage();
-    this.img.src = imgSrc;
-
-    this.width = width;
-    this.height = height;
-
-    this.x = x;
-    this.y = y;
-
-    this.visible = true;
+export default class Sprite {
+    constructor(imgSrc, width, height, x = 0, y = 0) {
+      this.img = wx.createImage();  // 创建图片对象
+      this.img.src = imgSrc;        // 图片路径
+      this.width = width;           // 图片宽度
+      this.height = height;         // 图片高度
+      this.x = x;                   // 绘制x坐标
+      this.y = y;                   // 绘制y坐标
+      this.visible = true;          // 是否可见
+    }
+  
+    /**
+     * 绘制图片到画布
+     * @param {CanvasRenderingContext2D} ctx - 画布上下文
+     */
+    render(ctx) {
+      if (!this.visible) return;
+  
+      // 绘制图片（参数：图片对象，目标x，目标y，目标宽度，目标高度）
+      ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
+    }
   }
-
-  /**
-   * 将精灵图绘制在canvas上
-   */
-  render(ctx) {
-    if (!this.visible) return;
-
-    ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
-  }
-
-  /**
-   * 简单的碰撞检测定义：
-   * 另一个精灵的中心点处于本精灵所在的矩形内即可
-   * @param{Sprite} sp: Sptite的实例
-   */
-  isCollideWith(sp) {
-    const spX = sp.x + sp.width / 2;
-    const spY = sp.y + sp.height / 2;
-
-    // 不可见则不检测
-    if (!this.visible || !sp.visible) return false;
-    // 不可碰撞则不检测
-    if (!this.isActive || !sp.isActive) return false;
-
-    return !!(
-      spX >= this.x &&
-      spX <= this.x + this.width &&
-      spY >= this.y &&
-      spY <= this.y + this.height
-    );
-  }
-}
