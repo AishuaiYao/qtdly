@@ -19,12 +19,10 @@ export default class Main {
     this.button.pressed = false;
 
     // 对话框及输入状态
-    this.showDialog = false;
-    this.tempInput = ''; // 临时存储输入过程中的内容
-    this.finalInput = ''; // 存储用户确认后的最终输入
-    this.isInputting = false;
-    this.inputCursor = '|';
-    this.cursorTimer = 0;
+    this.showDialog = false;       // 是否显示对话框
+    this.isInputting = false;      // 是否正在输入中（键盘弹出状态）
+    this.finalInput = '';          // 仅存储用户确认后的最终文本
+    this.inputPrompt = '点击按钮输入内容'; // 初始提示文字
 
     this.bindEvents();
     this.aniId = 0;
@@ -38,28 +36,27 @@ export default class Main {
       if (!this.button) return;
       const { clientX, clientY } = res.touches[0];
 
-      // 按钮点击：显示对话框并弹出键盘
+      // 按钮点击：弹出键盘（不直接显示输入内容，仅在确认后显示）
       const isInButton = clientX >= this.button.x
         && clientX <= this.button.x + this.button.width
         && clientY >= this.button.y
         && clientY <= this.button.y + this.button.height;
 
       if (isInButton) {
-        console.log('按钮被点击，显示对话框');
+        console.log('按钮被点击，弹出键盘');
         this.button.pressed = true;
-        this.showDialog = true;
+        this.showDialog = true;    // 显示对话框（初始显示提示文字）
         this.isInputting = true;
-        this.tempInput = ''; // 清空临时输入
         this.showSystemKeyboard(); // 弹出键盘
         return;
       }
 
-      // 对话框外部点击：关闭所有
+      // 对话框外部点击：关闭对话框
       if (this.showDialog) {
         const dialogLeft = 50;
         const dialogRight = SCREEN_WIDTH - 50;
         const dialogTop = 100;
-        const dialogBottom = 300;
+        const dialogBottom = 200; // 缩短对话框高度（无需显示输入过程）
 
         const isInDialog = clientX >= dialogLeft
           && clientX <= dialogRight
@@ -77,37 +74,23 @@ export default class Main {
       this.button.pressed = false;
     });
 
-    // 监听键盘输入（只临时存储，不处理）
-    wx.onKeyboardInput((res) => {
-      if (this.isInputting) {
-        // 处理退格键
-        if (res.keyCode === 8) {
-          this.tempInput = this.tempInput.slice(0, -1);
-        }
-        // 忽略回车键（单独处理确认事件）
-        else if (res.keyCode !== 13) {
-          if (this.tempInput.length < 20) {
-            this.tempInput += res.value;
-          }
-        }
-      }
-    });
-
-    // 监听键盘确认事件（用户点击确定/回车）
+    // 监听键盘确认事件（仅在确认后获取并显示内容）
     wx.onKeyboardConfirm((res) => {
       if (this.isInputting) {
-        // 确认后才保存并打印最终输入
-        this.finalInput = res.value; // 直接使用键盘返回的完整值
-        console.log('用户确认输入：', this.finalInput); // 只在确认后打印
-        this.closeInput();
+        // 只在确认后保存最终内容
+        this.finalInput = res.value || '未输入内容';
+        console.log('用户确认输入：', this.finalInput); // 打印最终内容
+        this.isInputting = false; // 结束输入状态
+        wx.hideKeyboard();
+        // 保持对话框显示，展示最终输入内容
       }
     });
 
-    // 监听键盘关闭（未确认的情况）
+    // 监听键盘关闭（未确认输入）
     wx.onKeyboardComplete(() => {
       if (this.isInputting) {
-        console.log('键盘已关闭（未确认输入）');
-        this.closeInput();
+        console.log('未确认输入，关闭对话框');
+        this.closeInput(); // 直接关闭对话框
       }
     });
   }
@@ -118,7 +101,7 @@ export default class Main {
       defaultValue: '',
       maxLength: 20,
       multiple: false,
-      confirmText: '确定', // 键盘上的确认按钮文字
+      confirmText: '确定',
       placeholder: '请输入内容...',
       success: () => {
         console.log('键盘弹出成功');
@@ -129,25 +112,17 @@ export default class Main {
     });
   }
 
-  /** 关闭输入相关的所有状态 */
+  /** 关闭输入相关状态 */
   closeInput() {
     this.showDialog = false;
     this.isInputting = false;
-    this.tempInput = '';
+    // 保留最终输入内容（可选：如需清空可加 this.finalInput = ''）
     wx.hideKeyboard();
   }
 
   /** 更新游戏状态 */
   update() {
     this.bg.update();
-
-    // 光标闪烁逻辑
-    if (this.showDialog) {
-      this.cursorTimer++;
-      if (this.cursorTimer % 30 === 0) {
-        this.inputCursor = this.inputCursor === '|' ? '' : '|';
-      }
-    }
   }
 
   /** 渲染画面 */
@@ -167,27 +142,28 @@ export default class Main {
     if (this.showDialog) {
       // 对话框背景
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(50, 100, SCREEN_WIDTH - 100, 200);
+      ctx.fillRect(50, 100, SCREEN_WIDTH - 100, 100); // 高度缩短为100
 
       // 标题
       ctx.fillStyle = 'white';
       ctx.font = '16px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('请输入内容:', SCREEN_WIDTH / 2, 160);
+      ctx.fillText('输入结果：', SCREEN_WIDTH / 2, 140);
 
-      // 输入框
-      ctx.fillStyle = 'white';
-      ctx.fillRect(70, 180, SCREEN_WIDTH - 140, 40);
-
-      // 显示临时输入内容+光标
-      ctx.fillStyle = 'black';
+      // 显示内容（确认前显示提示，确认后显示最终内容）
+      ctx.fillStyle = '#fff';
       ctx.font = '14px Arial';
-      ctx.fillText(this.tempInput + this.inputCursor, SCREEN_WIDTH / 2, 205);
+      const displayText = this.isInputting ? '输入中...' : this.finalInput;
+      ctx.fillText(displayText, SCREEN_WIDTH / 2, 170);
 
-      // 提示
+      // 操作提示
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.font = '12px Arial';
-      ctx.fillText('输入完成后点击"确定"', SCREEN_WIDTH / 2, 260);
+      ctx.fillText(
+        this.isInputting ? '请输入并点击确定' : '点击外部关闭',
+        SCREEN_WIDTH / 2,
+        190
+      );
     }
   }
 
