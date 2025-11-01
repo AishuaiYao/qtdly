@@ -27,6 +27,11 @@ export default class Main {
     this.isRequesting = false;     // API请求中状态
     this.requestStatus = '';       // 请求状态（loading/success/fail）
 
+    // 滚动相关变量
+    this.scrollY = 0;              // 滚动偏移量
+    this.startY = 0;               // 触摸起始y坐标
+    this.isScrolling = false;      // 是否正在滚动
+
     this.bindEvents();
     this.aniId = 0;
     this.start();
@@ -53,6 +58,7 @@ export default class Main {
         this.finalInput = '';      // 清空历史输入
         this.apiResult = '';       // 清空历史结果
         this.requestStatus = '';   // 重置请求状态
+        this.scrollY = 0;          // 重置滚动
         this.showSystemKeyboard(); // 弹出系统键盘
         return;
       }
@@ -61,8 +67,8 @@ export default class Main {
       if (this.showDialog) {
         const dialogLeft = 50;
         const dialogRight = SCREEN_WIDTH - 50;
-        const dialogTop = 100;
-        const dialogBottom = 350;  // 对话框底部坐标
+        const dialogTop = 80;      // 对应对话框Y坐标
+        const dialogBottom = 80 + 320;  // 对话框Y + 高度
 
         const isInDialog = clientX >= dialogLeft
           && clientX <= dialogRight
@@ -71,13 +77,44 @@ export default class Main {
 
         if (!isInDialog) {
           this.closeDialog();
+        } else {
+          // 如果点击对话框内部，准备滚动
+          this.startY = clientY;
+          this.isScrolling = true;
         }
       }
     });
 
-    // 触摸结束：恢复按钮状态
+    // 触摸移动事件（处理滚动）
+    wx.onTouchMove((res) => {
+      if (!this.showDialog || this.isInputting || !this.isScrolling) return;
+
+      const { clientY } = res.touches[0];
+      const deltaY = clientY - this.startY;
+
+      // 计算回复文本总高度
+      const resultLines = this.wrapText(this.apiResult || '', SCREEN_WIDTH - 120, 14);
+      const totalHeight = resultLines.length * 20;
+
+      // 计算输入区域占用高度
+      const inputLines = this.wrapText(this.finalInput || '', SCREEN_WIDTH - 120, 14);
+      const showInputLines = inputLines.slice(0, 2);
+      const inputLineHeight = showInputLines.length * 20;
+      const replyTitleY = 150 + inputLineHeight + 20;
+
+      // 计算可滚动区域高度
+      const visibleHeight = 380 - replyTitleY - 30; // 对话框底部 - 回复标题Y - 底部边距
+      const maxScrollY = Math.max(0, totalHeight - visibleHeight); // 最大滚动距离
+
+      // 更新滚动偏移量（限制在0到maxScrollY之间）
+      this.scrollY = Math.max(0, Math.min(this.scrollY - deltaY, maxScrollY));
+      this.startY = clientY;
+    });
+
+    // 触摸结束：恢复按钮状态和滚动状态
     wx.onTouchEnd(() => {
       this.button.pressed = false;
+      this.isScrolling = false;
     });
 
     // 键盘确认事件（用户点击确定）
@@ -96,7 +133,8 @@ export default class Main {
         this.finalInput = res.value.trim(); // 去除首尾空格
         console.log('用户输入:', this.finalInput);
 
-        // 调用API
+        // 调用API，重置滚动
+        this.scrollY = 0;
         this.callAliyunApi(this.finalInput);
 
         this.isInputting = false;
@@ -198,26 +236,32 @@ export default class Main {
     this.showDialog = false;
     this.isInputting = false;
     this.isRequesting = false;
+    this.scrollY = 0; // 重置滚动
     wx.hideKeyboard();
   }
 
-  /** 文本换行处理（避免超出对话框） */
+  /** 文本换行处理（优化版） */
   wrapText(text, maxWidth, fontSize) {
     const lines = [];
     let currentLine = '';
-    const words = text.split(/\s+/); // 按空格拆分
+    ctx.font = `${fontSize}px Arial`; // 确保测量字体一致
 
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
+    // 处理无空格的长文本（逐个字符判断）
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const testLine = currentLine + char;
       const metrics = ctx.measureText(testLine);
 
-      if (metrics.width <= maxWidth) {
-        currentLine = testLine;
-      } else {
+      // 如果当前行加上新字符超过最大宽度，换行
+      if (metrics.width > maxWidth && currentLine) {
         lines.push(currentLine);
-        currentLine = word;
+        currentLine = char;
+      } else {
+        currentLine = testLine;
       }
     }
+
+    // 添加最后一行
     if (currentLine) lines.push(currentLine);
     return lines;
   }
@@ -245,11 +289,11 @@ export default class Main {
 
     // 渲染对话框
     if (this.showDialog) {
-      // 1. 对话框背景（带圆角和边框）
+      // 1. 对话框背景（带圆角和边框，增大高度）
       const dialogX = 50;
-      const dialogY = 100;
+      const dialogY = 80; // 向上移动，增加空间
       const dialogWidth = SCREEN_WIDTH - 100;
-      const dialogHeight = 250;
+      const dialogHeight = 320; // 增大高度到320px
       const radius = 10; // 圆角半径
 
       // 绘制带圆角的矩形
@@ -268,39 +312,71 @@ export default class Main {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // 2. 输入内容标题
+      // 2. 输入内容标题（左对齐）
       ctx.fillStyle = '#ffffff';
       ctx.font = '16px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('你的问题：', SCREEN_WIDTH / 2, 140);
+      ctx.textAlign = 'left';
+      ctx.fillText('你的问题：', 70, 130);
 
-      // 3. 显示用户输入
+      // 3. 显示用户输入（最多2行）
       ctx.fillStyle = '#e0e0e0';
       ctx.font = '14px Arial';
+      ctx.textAlign = 'left';
       const inputLines = this.wrapText(this.finalInput || '请输入内容...', SCREEN_WIDTH - 120, 14);
-      inputLines.slice(0, 2).forEach((line, i) => { // 最多显示2行
-        ctx.fillText(line, SCREEN_WIDTH / 2, 170 + i * 20);
+      const showInputLines = inputLines.slice(0, 2); // 最多显示2行
+      showInputLines.forEach((line, i) => {
+        ctx.fillText(line, 70, 150 + i * 20); // 从150px开始
       });
 
-      // 4. AI回复标题
+      // 4. AI回复标题（根据输入行数动态定位）
+      const inputLineHeight = showInputLines.length * 20;
+      const replyTitleY = 150 + inputLineHeight + 20; // 输入文本下方20px
       ctx.fillStyle = '#ffffff';
       ctx.font = '16px Arial';
-      ctx.fillText('AI回复：', SCREEN_WIDTH / 2, 210 + (inputLines.length > 1 ? 20 : 0));
+      ctx.textAlign = 'left';
+      ctx.fillText('AI回复：', 70, replyTitleY);
 
-      // 5. 显示API结果
-      const resultY = 240 + (inputLines.length > 1 ? 20 : 0);
+      // 5. 显示API结果（带滚动功能）
       ctx.fillStyle = this.requestStatus === 'fail' ? '#ff6b6b' : '#ffffff';
       ctx.font = '14px Arial';
+      ctx.textAlign = 'left';
       const resultLines = this.wrapText(this.apiResult || '', SCREEN_WIDTH - 120, 14);
-      resultLines.slice(0, 3).forEach((line, i) => { // 最多显示3行
-        ctx.fillText(line, SCREEN_WIDTH / 2, resultY + i * 20);
+      const resultY = replyTitleY + 30; // 标题下方30px开始
+
+      // 计算可滚动区域高度
+      const visibleHeight = 380 - replyTitleY - 30; // 可见区域高度
+      const totalHeight = resultLines.length * 20; // 文本总高度
+      const maxScrollY = Math.max(0, totalHeight - visibleHeight); // 最大滚动距离
+
+      // 绘制可见的回复文本（应用滚动偏移）
+      resultLines.forEach((line, i) => {
+        const drawY = resultY + i * 20 - this.scrollY;
+        // 只绘制可见区域内的文本
+        if (drawY > replyTitleY && drawY < 380 - 20) {
+          ctx.fillText(line, 70, drawY);
+        }
       });
 
-      // 6. 操作提示
+      // 6. 绘制滚动条（当内容过长时）
+      if (maxScrollY > 0) {
+        const scrollBarWidth = 3;
+        const scrollBarHeight = Math.max(20, (visibleHeight / totalHeight) * visibleHeight); // 滚动条高度
+        const scrollBarX = SCREEN_WIDTH - 60; // 右侧边距
+        // 滚动条Y坐标（根据滚动进度计算）
+        const scrollBarY = resultY + (this.scrollY / maxScrollY) * (visibleHeight - scrollBarHeight);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillRect(scrollBarX, scrollBarY, scrollBarWidth, scrollBarHeight);
+      }
+
+      // 7. 操作提示
       ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
       ctx.font = '12px Arial';
-      const tipText = this.isInputting ? '输入后点击"发送"' : '点击外部关闭';
-      ctx.fillText(tipText, SCREEN_WIDTH / 2, 320);
+      ctx.textAlign = 'center';
+      const tipText = this.isInputting
+        ? '输入后点击"发送"'
+        : (maxScrollY > 0 ? '向上滑动查看更多' : '点击外部关闭');
+      ctx.fillText(tipText, SCREEN_WIDTH / 2, 380);
     }
   }
 
