@@ -11,14 +11,14 @@ export default class Sprite {
       this.y = y;                   // 绘制y坐标
       this.visible = true;          // 是否可见
     }
-  
+
     /**
      * 绘制图片到画布
      * @param {CanvasRenderingContext2D} ctx - 画布上下文
      */
     render(ctx) {
       if (!this.visible) return;
-  
+
       // 绘制图片（参数：图片对象，目标x，目标y，目标宽度，目标高度）
       ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
     }
