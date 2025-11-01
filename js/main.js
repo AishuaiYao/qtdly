@@ -32,6 +32,16 @@ export default class Main {
     this.startY = 0;               // 触摸起始y坐标
     this.isScrolling = false;      // 是否正在滚动
 
+    // 初始化音频
+    this.bgm = wx.createInnerAudioContext();
+    this.bgm.src = 'audio/bgm.mp3';
+    this.bgm.loop = true; // 背景音乐循环
+    this.bgm.volume = 0.5; // 音量50%
+
+    this.buttonSound = wx.createInnerAudioContext();
+    this.buttonSound.src = 'audio/button.mp3';
+    this.buttonSound.volume = 0.8; // 按钮音效音量80%
+
     this.bindEvents();
     this.aniId = 0;
     this.start();
@@ -39,6 +49,27 @@ export default class Main {
 
   /** 绑定所有事件 */
   bindEvents() {
+    // 音频监听：绑定到具体音频对象（删除全局wx.onCanPlay）
+    // 可选：背景音乐加载完成监听
+    this.bgm.onCanplay(() => {
+      console.log('背景音乐加载完成');
+    });
+
+    // 可选：按钮音效加载完成监听
+    this.buttonSound.onCanplay(() => {
+      console.log('按钮音效加载完成');
+    });
+
+    // 背景音乐错误监听
+    this.bgm.onError((err) => {
+      console.error('背景音乐播放失败:', err.errMsg);
+    });
+
+    // 按钮音效错误监听
+    this.buttonSound.onError((err) => {
+      console.error('按钮音效播放失败:', err.errMsg);
+    });
+
     // 触摸开始事件
     wx.onTouchStart((res) => {
       if (!this.button) return;
@@ -52,6 +83,7 @@ export default class Main {
 
       if (isInButton) {
         console.log('按钮被点击，弹出键盘');
+        this.buttonSound.play(); // 播放按钮音效
         this.button.pressed = true;
         this.showDialog = true;
         this.isInputting = true;
@@ -383,6 +415,23 @@ export default class Main {
   /** 启动游戏循环 */
   start() {
     this.loop();
+    // 优化背景音乐播放逻辑
+    const playBgm = () => {
+      try {
+        this.bgm.play().then(() => {
+          console.log('背景音乐播放成功');
+        }).catch(err => {
+          console.log('背景音乐需用户交互，点击屏幕播放:', err);
+          // 监听一次触摸事件，用户点击后重试
+          wx.onTouchStart(() => {
+            playBgm();
+          }, { once: true });
+        });
+      } catch (e) {
+        console.error('播放异常:', e);
+      }
+    };
+    playBgm();
   }
 
   /** 游戏主循环 */
