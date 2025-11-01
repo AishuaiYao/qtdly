@@ -83,7 +83,17 @@ export default class Main {
     // 键盘确认事件（用户点击确定）
     wx.onKeyboardConfirm((res) => {
       if (this.isInputting) {
-        this.finalInput = res.value || '未输入内容';
+        // 验证输入是否为空
+        if (!res.value || res.value.trim() === '') {
+          wx.showToast({
+            title: '请输入内容',
+            icon: 'none',
+            duration: 1500
+          });
+          return; // 不关闭键盘，让用户继续输入
+        }
+
+        this.finalInput = res.value.trim(); // 去除首尾空格
         console.log('用户输入:', this.finalInput);
 
         // 调用API
@@ -169,7 +179,15 @@ export default class Main {
       fail: (err) => {
         this.isRequesting = false;
         this.requestStatus = 'fail';
-        this.apiResult = `请求失败: ${err.errMsg}`;
+
+        // 更详细的错误分类提示
+        if (err.errMsg.includes('network')) {
+          this.apiResult = '网络错误，请检查网络连接';
+        } else if (err.errMsg.includes('timeout')) {
+          this.apiResult = '请求超时，请稍后重试';
+        } else {
+          this.apiResult = `请求失败: ${err.errMsg}`;
+        }
         console.error('API请求失败:', err);
       }
     });
@@ -227,9 +245,28 @@ export default class Main {
 
     // 渲染对话框
     if (this.showDialog) {
-      // 1. 对话框背景
+      // 1. 对话框背景（带圆角和边框）
+      const dialogX = 50;
+      const dialogY = 100;
+      const dialogWidth = SCREEN_WIDTH - 100;
+      const dialogHeight = 250;
+      const radius = 10; // 圆角半径
+
+      // 绘制带圆角的矩形
+      ctx.beginPath();
+      ctx.moveTo(dialogX + radius, dialogY);
+      ctx.arcTo(dialogX + dialogWidth, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, radius);
+      ctx.arcTo(dialogX + dialogWidth, dialogY + dialogHeight, dialogX, dialogY + dialogHeight, radius);
+      ctx.arcTo(dialogX, dialogY + dialogHeight, dialogX, dialogY, radius);
+      ctx.arcTo(dialogX, dialogY, dialogX + dialogWidth, dialogY, radius);
+      ctx.closePath();
       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      ctx.fillRect(50, 100, SCREEN_WIDTH - 100, 250); // 宽度：屏幕-100，高度：250
+      ctx.fill();
+
+      // 添加边框
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
       // 2. 输入内容标题
       ctx.fillStyle = '#ffffff';
