@@ -49,7 +49,6 @@ export default class Main {
 
   /** 绑定所有事件 */
   bindEvents() {
-    // 音频监听：绑定到具体音频对象（删除全局wx.onCanPlay）
     // 可选：背景音乐加载完成监听
     this.bgm.onCanplay(() => {
       console.log('背景音乐加载完成');
@@ -83,7 +82,7 @@ export default class Main {
 
       if (isInButton) {
         console.log('按钮被点击，弹出键盘');
-        this.buttonSound.play(); // 播放按钮音效
+        this.buttonSound.play(); // 直接播放，无返回值处理
         this.button.pressed = true;
         this.showDialog = true;
         this.isInputting = true;
@@ -415,20 +414,17 @@ export default class Main {
   /** 启动游戏循环 */
   start() {
     this.loop();
-    // 优化背景音乐播放逻辑
+    // 修复播放异常：移除.then()，直接调用play()
     const playBgm = () => {
       try {
-        this.bgm.play().then(() => {
-          console.log('背景音乐播放成功');
-        }).catch(err => {
-          console.log('背景音乐需用户交互，点击屏幕播放:', err);
-          // 监听一次触摸事件，用户点击后重试
-          wx.onTouchStart(() => {
-            playBgm();
-          }, { once: true });
-        });
-      } catch (e) {
-        console.error('播放异常:', e);
+        this.bgm.play();
+        console.log('背景音乐开始播放');
+      } catch (err) {
+        console.log('背景音乐需用户交互，点击屏幕播放:', err);
+        // 监听一次触摸事件，用户点击后重试
+        wx.onTouchStart(() => {
+          playBgm();
+        }, { once: true });
       }
     };
     playBgm();
