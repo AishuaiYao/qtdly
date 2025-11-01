@@ -12,7 +12,7 @@ export default class Main {
 
     // 初始化右下角按钮
     this.button = new Sprite(
-      'images/btn_right.png',
+      'images/right.png',
       80, 80,
       SCREEN_WIDTH - 80 - 10,  // 右侧边距10px
       SCREEN_HEIGHT - 80 - 10  // 底部边距10px
