@@ -12,8 +12,8 @@ export default class Main {
     this.button = new Sprite(
       'images/btn_right.png', // 按钮图片路径
       80, 80, // 按钮宽高
-      SCREEN_WIDTH - 80 - 20, // 右下角x坐标（留出20px边距）
-      SCREEN_HEIGHT - 80 - 20 // 右下角y坐标
+      SCREEN_WIDTH - 80 - 10, // 右下角x坐标（留出20px边距）
+      SCREEN_HEIGHT - 80 - 10 // 右下角y坐标
     );
     this.button.pressed = false; // 新增：标记按钮是否被按下
 
