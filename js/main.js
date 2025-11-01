@@ -20,7 +20,8 @@ export default class Main {
 
     // 对话框及输入状态
     this.showDialog = false;
-    this.userInput = '';
+    this.tempInput = ''; // 临时存储输入过程中的内容
+    this.finalInput = ''; // 存储用户确认后的最终输入
     this.isInputting = false;
     this.inputCursor = '|';
     this.cursorTimer = 0;
@@ -30,7 +31,7 @@ export default class Main {
     this.start();
   }
 
-  /** 绑定所有事件（按钮+键盘） */
+  /** 绑定所有事件 */
   bindEvents() {
     // 触摸开始事件
     wx.onTouchStart((res) => {
@@ -44,16 +45,16 @@ export default class Main {
         && clientY <= this.button.y + this.button.height;
 
       if (isInButton) {
-        console.log('按钮被点击，显示对话框并弹出键盘');
+        console.log('按钮被点击，显示对话框');
         this.button.pressed = true;
         this.showDialog = true;
         this.isInputting = true;
-        this.userInput = ''; // 清空历史输入
-        this.showSystemKeyboard(); // 主动弹出键盘
+        this.tempInput = ''; // 清空临时输入
+        this.showSystemKeyboard(); // 弹出键盘
         return;
       }
 
-      // 对话框交互
+      // 对话框外部点击：关闭所有
       if (this.showDialog) {
         const dialogLeft = 50;
         const dialogRight = SCREEN_WIDTH - 50;
@@ -66,11 +67,7 @@ export default class Main {
           && clientY <= dialogBottom;
 
         if (!isInDialog) {
-          // 点击外部：关闭对话框和键盘
-          console.log('点击对话框外部，关闭输入');
-          this.showDialog = false;
-          this.isInputting = false;
-          wx.hideKeyboard(); // 隐藏键盘
+          this.closeInput();
         }
       }
     });
@@ -80,44 +77,49 @@ export default class Main {
       this.button.pressed = false;
     });
 
-    // 监听键盘输入
+    // 监听键盘输入（只临时存储，不处理）
     wx.onKeyboardInput((res) => {
       if (this.isInputting) {
         // 处理退格键
         if (res.keyCode === 8) {
-          this.userInput = this.userInput.slice(0, -1);
+          this.tempInput = this.tempInput.slice(0, -1);
         }
-        // 处理回车键（结束输入）
-        else if (res.keyCode === 13) {
-          console.log('用户输入完成：', this.userInput); // 打印输入内容
-          this.isInputting = false;
-          wx.hideKeyboard(); // 隐藏键盘
-        }
-        // 普通字符输入
-        else {
-          if (this.userInput.length < 20) { // 限制长度
-            this.userInput += res.value;
-            console.log('当前输入：', this.userInput); // 实时打印输入
+        // 忽略回车键（单独处理确认事件）
+        else if (res.keyCode !== 13) {
+          if (this.tempInput.length < 20) {
+            this.tempInput += res.value;
           }
         }
       }
     });
 
-    // 监听键盘隐藏事件
+    // 监听键盘确认事件（用户点击确定/回车）
+    wx.onKeyboardConfirm((res) => {
+      if (this.isInputting) {
+        // 确认后才保存并打印最终输入
+        this.finalInput = res.value; // 直接使用键盘返回的完整值
+        console.log('用户确认输入：', this.finalInput); // 只在确认后打印
+        this.closeInput();
+      }
+    });
+
+    // 监听键盘关闭（未确认的情况）
     wx.onKeyboardComplete(() => {
-      console.log('键盘已关闭');
-      this.isInputting = false;
+      if (this.isInputting) {
+        console.log('键盘已关闭（未确认输入）');
+        this.closeInput();
+      }
     });
   }
 
-  /** 主动弹出系统键盘 */
+  /** 弹出系统键盘 */
   showSystemKeyboard() {
     wx.showKeyboard({
-      defaultValue: '', // 初始值为空
-      maxLength: 20, // 最大输入长度
-      multiple: false, // 不允许多行输入
-      confirmHold: true, // 长按确认
-      placeholder: '请输入内容...', // 提示文字
+      defaultValue: '',
+      maxLength: 20,
+      multiple: false,
+      confirmText: '确定', // 键盘上的确认按钮文字
+      placeholder: '请输入内容...',
       success: () => {
         console.log('键盘弹出成功');
       },
@@ -125,6 +127,14 @@ export default class Main {
         console.error('键盘弹出失败：', err);
       }
     });
+  }
+
+  /** 关闭输入相关的所有状态 */
+  closeInput() {
+    this.showDialog = false;
+    this.isInputting = false;
+    this.tempInput = '';
+    wx.hideKeyboard();
   }
 
   /** 更新游戏状态 */
@@ -169,15 +179,15 @@ export default class Main {
       ctx.fillStyle = 'white';
       ctx.fillRect(70, 180, SCREEN_WIDTH - 140, 40);
 
-      // 输入内容+光标
+      // 显示临时输入内容+光标
       ctx.fillStyle = 'black';
       ctx.font = '14px Arial';
-      ctx.fillText(this.userInput + this.inputCursor, SCREEN_WIDTH / 2, 205);
+      ctx.fillText(this.tempInput + this.inputCursor, SCREEN_WIDTH / 2, 205);
 
       // 提示
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.font = '12px Arial';
-      ctx.fillText('按回车完成输入，点击外部取消', SCREEN_WIDTH / 2, 260);
+      ctx.fillText('输入完成后点击"确定"', SCREEN_WIDTH / 2, 260);
     }
   }
 
