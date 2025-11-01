@@ -7,19 +7,33 @@ const ctx = canvas.getContext('2d');
 
 export default class Main {
   constructor() {
-    // 初始化背景和按钮
+    // 初始化背景
     this.bg = new Background();
-    this.button = new Sprite(
-      'images/right.png',
-      80, 80,
-      SCREEN_WIDTH - 90,  // 右侧边距10px
-      SCREEN_HEIGHT - 90  // 底部边距10px
-    );
-    this.button.pressed = false;
 
-    // 状态管理
+    // 初始化左右按键（统一配置）
+    this.buttons = {
+      right: new Sprite(
+        'images/right.png',
+        80, 80,
+        SCREEN_WIDTH - 90,  // 右侧边距10px
+        SCREEN_HEIGHT - 90  // 底部边距10px
+      ),
+      left: new Sprite(
+        'images/left.png',  // 左按键图片
+        80, 80,
+        10,  // 左侧边距10px
+        SCREEN_HEIGHT - 90  // 底部边距10px（与右按键同高度）
+      )
+    };
+    // 初始化按键状态
+    Object.keys(this.buttons).forEach(key => {
+      this.buttons[key].pressed = false;
+    });
+
+    // 状态管理（新增当前激活按键标识）
     this.state = {
       showDialog: false,
+      activeButton: null,  // 记录当前激活的按键（'left'/'right'）
       isInputting: false,
       finalInput: '',
       apiResult: '',
@@ -60,16 +74,22 @@ export default class Main {
 
     // 触摸开始
     wx.onTouchStart(res => {
-      if (!this.button) return;
       const { clientX, clientY } = res.touches[0];
 
-      // 按钮点击检测
-      if (this.isPointInButton(clientX, clientY)) {
+      // 检测是否点击了任何按键
+      const pressedButton = Object.entries(this.buttons).find(([_, btn]) =>
+        this.isPointInButton(clientX, clientY, btn)
+      );
+
+      if (pressedButton) {
+        const [key, btn] = pressedButton;
         this.audio.button.play();
-        this.button.pressed = true;
+        btn.pressed = true;
+        // 更新状态并记录当前激活的按键
         this.state = {
           ...this.state,
           showDialog: true,
+          activeButton: key,
           isInputting: true,
           finalInput: '',
           apiResult: '',
@@ -80,7 +100,7 @@ export default class Main {
         return;
       }
 
-      // 对话框交互
+      // 对话框交互（保持原有逻辑）
       if (this.state.showDialog) {
         const { dialogLeft, dialogRight, dialogTop, dialogBottom } = this.getDialogRect();
         const isInDialog = clientX >= dialogLeft && clientX <= dialogRight &&
@@ -95,7 +115,7 @@ export default class Main {
       }
     });
 
-    // 触摸移动
+    // 触摸移动（保持原有逻辑）
     wx.onTouchMove(res => {
       const { showDialog, isInputting, isScrolling, scrollY, startY } = this.state;
       if (!showDialog || isInputting || !isScrolling) return;
@@ -112,13 +132,13 @@ export default class Main {
       this.state.startY = clientY;
     });
 
-    // 触摸结束
+    // 触摸结束（重置所有按键状态）
     wx.onTouchEnd(() => {
-      this.button.pressed = false;
+      Object.values(this.buttons).forEach(btn => btn.pressed = false);
       this.state.isScrolling = false;
     });
 
-    // 键盘事件
+    // 键盘事件（保持原有逻辑）
     wx.onKeyboardConfirm(res => {
       if (this.state.isInputting) {
         const value = res.value.trim();
@@ -133,7 +153,8 @@ export default class Main {
           scrollY: 0,
           isInputting: false
         };
-        this.callAliyunApi(value);
+        // 可根据activeButton区分不同按键的API调用逻辑
+        this.callAliyunApi(value, this.state.activeButton);
         wx.hideKeyboard();
       }
     });
@@ -143,10 +164,10 @@ export default class Main {
     });
   }
 
-  /** 工具方法：检测点是否在按钮内 */
-  isPointInButton(x, y) {
-    return x >= this.button.x && x <= this.button.x + this.button.width &&
-           y >= this.button.y && y <= this.button.y + this.button.height;
+  /** 工具方法：检测点是否在按钮内（适配多按键） */
+  isPointInButton(x, y, button) {
+    return x >= button.x && x <= button.x + button.width &&
+           y >= button.y && y <= button.y + button.height;
   }
 
   /** 工具方法：获取对话框矩形区域 */
@@ -166,7 +187,7 @@ export default class Main {
       maxLength: 50,
       multiple: false,
       confirmText: '发送',
-      placeholder: '请输入要问的内容...',
+      placeholder: `请输入要问的内容...`,  // 可根据activeButton修改提示文字
       success: () => console.log('键盘弹出成功'),
       fail: err => {
         console.error('键盘弹出失败:', err);
@@ -175,8 +196,8 @@ export default class Main {
     });
   }
 
-  /** 调用阿里云百炼API */
-  callAliyunApi(inputText) {
+  /** 调用阿里云百炼API（增加按键标识参数） */
+  callAliyunApi(inputText, buttonType) {
     if (!inputText) {
       this.state = { ...this.state, requestStatus: 'fail', apiResult: '请输入有效内容' };
       return;
@@ -188,6 +209,9 @@ export default class Main {
       requestStatus: 'loading',
       apiResult: 'AI正在思考...'
     };
+
+    // 可根据按键类型修改API参数（如不同的system prompt）
+    const systemPrompt = '你现在假扮古代的包拯大人，你说话的口气也是带有古风的，然后我们处理的问题一般都是小两口或者家里面大人或者小朋友之间的小矛盾，你作为包大人收集到他们对某件事各自的观点后，对他们进行正面的积极的劝解，缓解他们之间的矛盾或者不同观点。劝解要简洁，分点论述，每个论点换行显示';
 
     const API_KEY = 'sk-943f95da67d04893b70c02be400e2935';
     const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
@@ -202,7 +226,7 @@ export default class Main {
       data: {
         model: 'qwen-plus',
         messages: [
-          { role: 'system', content: '你是一个 helpful 的助手，回答简洁明了。' },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: inputText }
         ]
       },
@@ -233,11 +257,12 @@ export default class Main {
     });
   }
 
-  /** 关闭对话框 */
+  /** 关闭对话框（重置激活按键） */
   closeDialog() {
     this.state = {
       ...this.state,
       showDialog: false,
+      activeButton: null,  // 重置激活状态
       isInputting: false,
       isRequesting: false,
       scrollY: 0
@@ -282,7 +307,7 @@ export default class Main {
     this.bg.update();
   }
 
-  /** 渲染画面 */
+  /** 渲染画面（增加左按键渲染） */
   render() {
     // 清空画布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -290,17 +315,19 @@ export default class Main {
     // 渲染背景
     this.bg.render(ctx);
 
-    // 渲染按钮
-    const scale = this.button.pressed ? 0.9 : 1;
-    const renderWidth = this.button.width * scale;
-    const renderHeight = this.button.height * scale;
-    ctx.drawImage(
-      this.button.img,
-      this.button.x + (this.button.width - renderWidth) / 2,
-      this.button.y + (this.button.height - renderHeight) / 2,
-      renderWidth,
-      renderHeight
-    );
+    // 渲染所有按键（统一处理）
+    Object.values(this.buttons).forEach(button => {
+      const scale = button.pressed ? 0.9 : 1;
+      const renderWidth = button.width * scale;
+      const renderHeight = button.height * scale;
+      ctx.drawImage(
+        button.img,
+        button.x + (button.width - renderWidth) / 2,
+        button.y + (button.height - renderHeight) / 2,
+        renderWidth,
+        renderHeight
+      );
+    });
 
     // 渲染对话框
     if (this.state.showDialog) {
@@ -308,9 +335,9 @@ export default class Main {
     }
   }
 
-  /** 渲染对话框内容 */
+  /** 渲染对话框内容（可根据激活按键修改标题） */
   renderDialog() {
-    const { finalInput, lastInput, inputLinesCache, apiResult, scrollY, isInputting } = this.state;
+    const { finalInput, lastInput, inputLinesCache, apiResult, scrollY, isInputting, activeButton } = this.state;
     const dialogX = 50;
     const dialogY = 80;
     const dialogWidth = SCREEN_WIDTH - 100;
@@ -330,11 +357,12 @@ export default class Main {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // 2. 渲染用户输入
+    // 2. 渲染用户输入（根据激活按键显示不同标题）
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText('你的问题：', 70, 130);
+    const dialogTitle = activeButton === 'left' ? '正方问答：' : '反方问答：';
+    ctx.fillText(dialogTitle, 70, 130);
 
     // 更新输入缓存
     if (finalInput !== lastInput) {
@@ -349,11 +377,11 @@ export default class Main {
     ctx.font = '14px Arial';
     showInputLines.forEach((line, i) => ctx.fillText(line, 70, 150 + i * 20));
 
-    // 3. 渲染AI回复
+    // 3. 渲染AI回复（保持原有逻辑）
     const replyTitleY = 150 + inputLineHeight + 20;
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px Arial';
-    ctx.fillText('AI回复：', 70, replyTitleY);
+    ctx.fillText('包大人回复：', 70, replyTitleY);
 
     const resultLines = this.getWrappedText(apiResult || '', SCREEN_WIDTH - 120, 14);
     const totalHeight = resultLines.length * 20;
