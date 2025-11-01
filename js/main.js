@@ -26,11 +26,17 @@ export default class Main {
     this.apiResult = '';           // API返回结果
     this.isRequesting = false;     // API请求中状态
     this.requestStatus = '';       // 请求状态（loading/success/fail）
+    this.lastInput = '';           // 记录上次输入（用于缓存判断）
 
     // 滚动相关变量
     this.scrollY = 0;              // 滚动偏移量
     this.startY = 0;               // 触摸起始y坐标
     this.isScrolling = false;      // 是否正在滚动
+
+    // 文本缓存变量（优化滚动卡顿核心）
+    this.inputLinesCache = [];    // 缓存用户输入换行结果
+    this.resultLinesCache = [];   // 缓存AI回复换行结果
+    this.cacheKey = '';           // 缓存key（文本+宽度+字体大小）
 
     // 初始化音频
     this.bgm = wx.createInnerAudioContext();
@@ -49,12 +55,12 @@ export default class Main {
 
   /** 绑定所有事件 */
   bindEvents() {
-    // 可选：背景音乐加载完成监听
+    // 背景音乐加载完成监听
     this.bgm.onCanplay(() => {
       console.log('背景音乐加载完成');
     });
 
-    // 可选：按钮音效加载完成监听
+    // 按钮音效加载完成监听
     this.buttonSound.onCanplay(() => {
       console.log('按钮音效加载完成');
     });
@@ -82,15 +88,15 @@ export default class Main {
 
       if (isInButton) {
         console.log('按钮被点击，弹出键盘');
-        this.buttonSound.play(); // 直接播放，无返回值处理
+        this.buttonSound.play();
         this.button.pressed = true;
         this.showDialog = true;
         this.isInputting = true;
-        this.finalInput = '';      // 清空历史输入
-        this.apiResult = '';       // 清空历史结果
-        this.requestStatus = '';   // 重置请求状态
-        this.scrollY = 0;          // 重置滚动
-        this.showSystemKeyboard(); // 弹出系统键盘
+        this.finalInput = '';
+        this.apiResult = '';
+        this.requestStatus = '';
+        this.scrollY = 0;
+        this.showSystemKeyboard();
         return;
       }
 
@@ -98,8 +104,8 @@ export default class Main {
       if (this.showDialog) {
         const dialogLeft = 50;
         const dialogRight = SCREEN_WIDTH - 50;
-        const dialogTop = 80;      // 对应对话框Y坐标
-        const dialogBottom = 80 + 320;  // 对话框Y + 高度
+        const dialogTop = 80;
+        const dialogBottom = 80 + 320;
 
         const isInDialog = clientX >= dialogLeft
           && clientX <= dialogRight
@@ -109,71 +115,59 @@ export default class Main {
         if (!isInDialog) {
           this.closeDialog();
         } else {
-          // 如果点击对话框内部，准备滚动
           this.startY = clientY;
           this.isScrolling = true;
         }
       }
     });
 
-    // 触摸移动事件（处理滚动）
+    // 触摸移动事件（优化滚动计算）
     wx.onTouchMove((res) => {
       if (!this.showDialog || this.isInputting || !this.isScrolling) return;
 
       const { clientY } = res.touches[0];
       const deltaY = clientY - this.startY;
 
-      // 计算回复文本总高度
-      const resultLines = this.wrapText(this.apiResult || '', SCREEN_WIDTH - 120, 14);
-      const totalHeight = resultLines.length * 20;
-
-      // 计算输入区域占用高度
-      const inputLines = this.wrapText(this.finalInput || '', SCREEN_WIDTH - 120, 14);
-      const showInputLines = inputLines.slice(0, 2);
-      const inputLineHeight = showInputLines.length * 20;
+      // 直接使用缓存高度，减少计算
+      const totalHeight = this.resultLinesCache.length * 20;
+      const inputLineHeight = this.inputLinesCache.length * 20;
       const replyTitleY = 150 + inputLineHeight + 20;
+      const visibleHeight = 380 - replyTitleY - 30;
+      const maxScrollY = Math.max(0, totalHeight - visibleHeight);
 
-      // 计算可滚动区域高度
-      const visibleHeight = 380 - replyTitleY - 30; // 对话框底部 - 回复标题Y - 底部边距
-      const maxScrollY = Math.max(0, totalHeight - visibleHeight); // 最大滚动距离
-
-      // 更新滚动偏移量（限制在0到maxScrollY之间）
+      // 简化滚动偏移计算
       this.scrollY = Math.max(0, Math.min(this.scrollY - deltaY, maxScrollY));
       this.startY = clientY;
     });
 
-    // 触摸结束：恢复按钮状态和滚动状态
+    // 触摸结束：恢复状态
     wx.onTouchEnd(() => {
       this.button.pressed = false;
       this.isScrolling = false;
     });
 
-    // 键盘确认事件（用户点击确定）
+    // 键盘确认事件
     wx.onKeyboardConfirm((res) => {
       if (this.isInputting) {
-        // 验证输入是否为空
         if (!res.value || res.value.trim() === '') {
           wx.showToast({
             title: '请输入内容',
             icon: 'none',
             duration: 1500
           });
-          return; // 不关闭键盘，让用户继续输入
+          return;
         }
 
-        this.finalInput = res.value.trim(); // 去除首尾空格
+        this.finalInput = res.value.trim();
         console.log('用户输入:', this.finalInput);
-
-        // 调用API，重置滚动
         this.scrollY = 0;
         this.callAliyunApi(this.finalInput);
-
         this.isInputting = false;
         wx.hideKeyboard();
       }
     });
 
-    // 键盘关闭事件（未确认输入）
+    // 键盘关闭事件
     wx.onKeyboardComplete(() => {
       if (this.isInputting) {
         console.log('未确认输入，关闭对话框');
@@ -202,20 +196,17 @@ export default class Main {
 
   /** 调用阿里云百炼API */
   callAliyunApi(inputText) {
-    // 校验输入
     if (!inputText.trim()) {
       this.requestStatus = 'fail';
       this.apiResult = '请输入有效内容';
       return;
     }
 
-    // 开始请求
     this.isRequesting = true;
     this.requestStatus = 'loading';
     this.apiResult = 'AI正在思考...';
 
-    // 配置API参数（替换为你的API Key）
-    const API_KEY = 'sk-943f95da67d04893b70c02be400e2935'; // 替换成实际API Key
+    const API_KEY = 'sk-943f95da67d04893b70c02be400e2935';
     const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 
     wx.request({
@@ -226,12 +217,11 @@ export default class Main {
         'Authorization': `Bearer ${API_KEY}`
       },
       data: {
-        model: 'qwen-plus', // 模型名称（可替换为其他模型）
+        model: 'qwen-plus',
         messages: [
           { role: 'system', content: '你是一个 helpful 的助手，回答简洁明了。' },
           { role: 'user', content: inputText }
         ]
-        // 若使用Qwen3开源版，添加：extra_body: { enable_thinking: false }
       },
       success: (res) => {
         this.isRequesting = false;
@@ -248,8 +238,6 @@ export default class Main {
       fail: (err) => {
         this.isRequesting = false;
         this.requestStatus = 'fail';
-
-        // 更详细的错误分类提示
         if (err.errMsg.includes('network')) {
           this.apiResult = '网络错误，请检查网络连接';
         } else if (err.errMsg.includes('timeout')) {
@@ -267,23 +255,19 @@ export default class Main {
     this.showDialog = false;
     this.isInputting = false;
     this.isRequesting = false;
-    this.scrollY = 0; // 重置滚动
+    this.scrollY = 0;
     wx.hideKeyboard();
   }
 
-  /** 文本换行处理（优化版） */
+  /** 文本换行处理（基础方法） */
   wrapText(text, maxWidth, fontSize) {
     const lines = [];
     let currentLine = '';
-    ctx.font = `${fontSize}px Arial`; // 确保测量字体一致
-
-    // 处理无空格的长文本（逐个字符判断）
+    ctx.font = `${fontSize}px Arial`;
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       const testLine = currentLine + char;
       const metrics = ctx.measureText(testLine);
-
-      // 如果当前行加上新字符超过最大宽度，换行
       if (metrics.width > maxWidth && currentLine) {
         lines.push(currentLine);
         currentLine = char;
@@ -291,10 +275,19 @@ export default class Main {
         currentLine = testLine;
       }
     }
-
-    // 添加最后一行
     if (currentLine) lines.push(currentLine);
     return lines;
+  }
+
+  /** 带缓存的文本换行（优化重复计算） */
+  getWrappedText(text, maxWidth, fontSize) {
+    const key = `${text}_${maxWidth}_${fontSize}`;
+    if (this.cacheKey === key && this.resultLinesCache.length > 0) {
+      return this.resultLinesCache;
+    }
+    this.cacheKey = key;
+    this.resultLinesCache = this.wrapText(text, maxWidth, fontSize);
+    return this.resultLinesCache;
   }
 
   /** 更新游戏状态 */
@@ -302,7 +295,7 @@ export default class Main {
     this.bg.update();
   }
 
-  /** 渲染画面 */
+  /** 渲染画面（优化滚动卡顿） */
   render() {
     // 清空画布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -320,14 +313,13 @@ export default class Main {
 
     // 渲染对话框
     if (this.showDialog) {
-      // 1. 对话框背景（带圆角和边框，增大高度）
+      // 1. 对话框背景
       const dialogX = 50;
-      const dialogY = 80; // 向上移动，增加空间
+      const dialogY = 80;
       const dialogWidth = SCREEN_WIDTH - 100;
-      const dialogHeight = 320; // 增大高度到320px
-      const radius = 10; // 圆角半径
+      const dialogHeight = 320;
+      const radius = 10;
 
-      // 绘制带圆角的矩形
       ctx.beginPath();
       ctx.moveTo(dialogX + radius, dialogY);
       ctx.arcTo(dialogX + dialogWidth, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, radius);
@@ -337,70 +329,64 @@ export default class Main {
       ctx.closePath();
       ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
       ctx.fill();
-
-      // 添加边框
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // 2. 输入内容标题（左对齐）
+      // 2. 渲染用户输入（缓存优化）
       ctx.fillStyle = '#ffffff';
       ctx.font = '16px Arial';
       ctx.textAlign = 'left';
       ctx.fillText('你的问题：', 70, 130);
 
-      // 3. 显示用户输入（最多2行）
+      if (this.finalInput !== this.lastInput) {
+        this.inputLinesCache = this.wrapText(this.finalInput || '请输入内容...', SCREEN_WIDTH - 120, 14);
+        this.lastInput = this.finalInput;
+      }
+      const showInputLines = this.inputLinesCache.slice(0, 2);
+      const inputLineHeight = showInputLines.length * 20;
       ctx.fillStyle = '#e0e0e0';
       ctx.font = '14px Arial';
-      ctx.textAlign = 'left';
-      const inputLines = this.wrapText(this.finalInput || '请输入内容...', SCREEN_WIDTH - 120, 14);
-      const showInputLines = inputLines.slice(0, 2); // 最多显示2行
       showInputLines.forEach((line, i) => {
-        ctx.fillText(line, 70, 150 + i * 20); // 从150px开始
+        ctx.fillText(line, 70, 150 + i * 20);
       });
 
-      // 4. AI回复标题（根据输入行数动态定位）
-      const inputLineHeight = showInputLines.length * 20;
-      const replyTitleY = 150 + inputLineHeight + 20; // 输入文本下方20px
+      // 3. 渲染AI回复（可见区域优化）
+      const replyTitleY = 150 + inputLineHeight + 20;
       ctx.fillStyle = '#ffffff';
       ctx.font = '16px Arial';
-      ctx.textAlign = 'left';
       ctx.fillText('AI回复：', 70, replyTitleY);
 
-      // 5. 显示API结果（带滚动功能）
+      const resultLines = this.getWrappedText(this.apiResult || '', SCREEN_WIDTH - 120, 14);
+      const totalHeight = resultLines.length * 20;
+      const resultY = replyTitleY + 30;
+      const visibleHeight = 380 - replyTitleY - 30;
+      const maxScrollY = Math.max(0, totalHeight - visibleHeight);
+
+      // 计算可见行范围，减少绘制次数
+      const startIndex = Math.floor(this.scrollY / 20);
+      const endIndex = Math.ceil((this.scrollY + visibleHeight) / 20) + 1;
+      const visibleLines = resultLines.slice(startIndex, endIndex);
+
+      // 渲染可见文本
       ctx.fillStyle = this.requestStatus === 'fail' ? '#ff6b6b' : '#ffffff';
       ctx.font = '14px Arial';
-      ctx.textAlign = 'left';
-      const resultLines = this.wrapText(this.apiResult || '', SCREEN_WIDTH - 120, 14);
-      const resultY = replyTitleY + 30; // 标题下方30px开始
-
-      // 计算可滚动区域高度
-      const visibleHeight = 380 - replyTitleY - 30; // 可见区域高度
-      const totalHeight = resultLines.length * 20; // 文本总高度
-      const maxScrollY = Math.max(0, totalHeight - visibleHeight); // 最大滚动距离
-
-      // 绘制可见的回复文本（应用滚动偏移）
-      resultLines.forEach((line, i) => {
-        const drawY = resultY + i * 20 - this.scrollY;
-        // 只绘制可见区域内的文本
-        if (drawY > replyTitleY && drawY < 380 - 20) {
-          ctx.fillText(line, 70, drawY);
-        }
+      visibleLines.forEach((line, i) => {
+        const drawY = resultY + (startIndex + i) * 20 - this.scrollY;
+        ctx.fillText(line, 70, drawY);
       });
 
-      // 6. 绘制滚动条（当内容过长时）
+      // 4. 渲染滚动条
       if (maxScrollY > 0) {
         const scrollBarWidth = 3;
-        const scrollBarHeight = Math.max(20, (visibleHeight / totalHeight) * visibleHeight); // 滚动条高度
-        const scrollBarX = SCREEN_WIDTH - 60; // 右侧边距
-        // 滚动条Y坐标（根据滚动进度计算）
+        const scrollBarHeight = Math.max(20, (visibleHeight / totalHeight) * visibleHeight);
+        const scrollBarX = SCREEN_WIDTH - 60;
         const scrollBarY = resultY + (this.scrollY / maxScrollY) * (visibleHeight - scrollBarHeight);
-
         ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.fillRect(scrollBarX, scrollBarY, scrollBarWidth, scrollBarHeight);
       }
 
-      // 7. 操作提示
+      // 5. 操作提示
       ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
       ctx.font = '12px Arial';
       ctx.textAlign = 'center';
@@ -414,14 +400,13 @@ export default class Main {
   /** 启动游戏循环 */
   start() {
     this.loop();
-    // 修复播放异常：移除.then()，直接调用play()
+    // 背景音乐播放逻辑
     const playBgm = () => {
       try {
         this.bgm.play();
         console.log('背景音乐开始播放');
       } catch (err) {
         console.log('背景音乐需用户交互，点击屏幕播放:', err);
-        // 监听一次触摸事件，用户点击后重试
         wx.onTouchStart(() => {
           playBgm();
         }, { once: true });
